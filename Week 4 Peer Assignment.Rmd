@@ -1,0 +1,108 @@
+---
+title: "Week 4 Peer Graded Assignment"
+output: html_document
+---
+
+## Synopsis
+
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants.
+
+The goal of the project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set.
+
+## Getting and Cleaning Data
+
+Start by loading in the required packages for this project. After assigning the working directory, the raw data is read in.
+
+```{r library load, warning = FALSE, comment = FALSE, cache=TRUE}
+library(AppliedPredictiveModeling)
+library(caret)
+library(ElemStatLearn)
+library(pgmm)
+library(rpart)
+library(gbm)
+library(lubridate)
+library(forecast)
+library(e1071)
+library(ggplot2)
+library(data.table)
+library(randomForest)
+
+setwd("~/Data Science Course/Practical Machine Learning/Week 4/Peer Graded Assignment")
+traindata <- read.csv("pml-training.csv", header = TRUE, sep = ",", na.strings = c("NA", ""))
+testdata <- read.csv("pml-testing.csv", header = TRUE, sep = ",", na.strings = c("NA", ""))
+
+```
+
+When taking a look at the data, it is noticed that a significant number of columns are empty (NAs). Also, the first 7 columns contain no relevant data to help with the latter predictive analysis. All of these columns will be excluded from both the train and test datasets.
+
+```{r Cleaning columns, cache=TRUE}
+colSums(is.na(traindata))
+
+train <- traindata[, colSums(is.na(traindata)) < 0.7 * nrow(traindata)]
+test <- testdata[, colSums(is.na(traindata)) < 0.7 * nrow(traindata)]
+
+names(train)
+head(train[,1:7])
+
+train <- train[ , -c(1:7)]
+test <- test[ , -c(1:7)]
+```
+
+## Cross Validation
+
+The train dataset is split into two subsets. This is so that an accurate model can be produced and tested on the train data.
+
+```{r Cross Validation, cache=TRUE}
+set.seed(420)
+inTrain <- createDataPartition(y = train$classe, p = 0.7, list = FALSE)
+cvTrain <- train[inTrain, ]
+cvTest <- train[-inTrain, ]
+```
+
+## PCA Preprocessing
+
+The first step is to see if there is sufficient correlation in the variables to determine whether PCA preprocessing is necessary. There are a lot of correlated variables, so PCA preprocessing will be run on the cross validated training set and then applied on all datasets (two cross validated sets and original test set).
+
+```{r PCA Preprocessing, cache=TRUE}
+correl <- abs(cor(subset(cvTrain, select = -c(classe))))
+diag(correl) <- 0
+which(correl > 0.9, arr.ind = T)
+
+preProc <- preProcess(subset(cvTrain, select = -c(classe)), method = "pca")
+cvTrainPCA <- predict(preProc, subset(cvTrain, select = -c(classe)))
+cvTrainPCA$classe <- cvTrain$classe
+
+cvTestPCA <- predict(preProc, subset(cvTest, select = -c(classe)))
+cvTestPCA$classe <- cvTest$classe
+
+testPCA <- predict(preProc, test)
+
+ncol(cvTrainPCA)
+```
+
+The number of variables drop from 53 to 26.
+
+## Random Forest
+
+Random Forest is applied to the cross validated training data.
+
+```{r Random Forest, cache=TRUE}
+modelPCA <- randomForest(classe ~ . , data = cvTrainPCA, proximity = TRUE, importance = TRUE)
+print(modelPCA)
+
+predPCA <- predict(modelPCA, newdata = cvTestPCA)
+confusionMatrix(predPCA, cvTestPCA$classe)
+```
+
+Intepretability is lost a little bit due to the PCA applied earlier, but the accuracy of the Random Forest is very high, at 97.76%.
+
+## Predicted Results
+
+Below are the predicted "classe" for the original test dataset.
+
+```{r Predicted Results, cache = TRUE}
+predictPCA <- predict(modelPCA, newdata = testPCA)
+predictPCA
+```
+
+
